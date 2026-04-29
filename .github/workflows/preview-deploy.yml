@@ -96,12 +96,19 @@ jobs:
         if: ${{ github.event.inputs.approval_id != '' && steps.deploy.outputs.preview_url != '' }}
         run: |
           GCP_TOKEN=$(gcloud auth print-access-token)
-          curl -s -X PATCH \
+          RESPONSE=$(curl -w "\nHTTP_STATUS:%{http_code}" -X PATCH \
             "https://firestore.googleapis.com/v1/projects/simulatecx/databases/(default)/documents/clients/${CLIENT_ID}/approvals/${APPROVAL_ID}?updateMask.fieldPaths=confirmedPreviewUrl" \
             -H "Authorization: Bearer ${GCP_TOKEN}" \
             -H "Content-Type: application/json" \
-            -d "{\"fields\":{\"confirmedPreviewUrl\":{\"stringValue\":\"${PREVIEW_URL}\"}}}"
-          echo "Wrote confirmedPreviewUrl=$PREVIEW_URL to clients/$CLIENT_ID/approvals/$APPROVAL_ID"
+            -d "{\"fields\":{\"confirmedPreviewUrl\":{\"stringValue\":\"${PREVIEW_URL}\"}}}")
+          HTTP_STATUS=$(echo "$RESPONSE" | grep -oE 'HTTP_STATUS:[0-9]+' | cut -d: -f2)
+          echo "Firestore response: $RESPONSE"
+          echo "HTTP status: $HTTP_STATUS"
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "ERROR: Firestore write failed with status $HTTP_STATUS"
+            exit 1
+          fi
+          echo "✔ Wrote confirmedPreviewUrl to clients/$CLIENT_ID/approvals/$APPROVAL_ID"
         env:
           APPROVAL_ID: ${{ github.event.inputs.approval_id }}
           CLIENT_ID: ${{ github.event.inputs.client_id }}
