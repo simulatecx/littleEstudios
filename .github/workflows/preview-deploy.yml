@@ -1,47 +1,74 @@
-  # SimulateCX — Firebase Hosting Preview Channel Deployer
-  #
-  # Copy to .github/workflows/preview-deploy.yml in the CLIENT's repo.
-  # Triggered manually by the SimulateCX Cloud Function when the editor
-  # clicks "Send to UAT" — NOT on every push. Previews last 7 days.
-  #
-  # SETUP (one-time per client repo):
-  #   1. Run: firebase login:ci  (copy the token)
-  #   2. GitHub repo → Settings → Secrets → Actions → New secret
-  #      Name: FIREBASE_TOKEN   Value: (the token)
-  #   3. Commit this file to .github/workflows/preview-deploy.yml on main
-  #   4. Update your SimulateCX GitHub PAT to include Actions: read & write
+# SimulateCX — Firebase Hosting Preview Channel Deployer
+#
+# Copy to .github/workflows/preview-deploy.yml in the CLIENT's repo.
+# Triggered manually by the SimulateCX Cloud Function when the editor
+# clicks "Send to UAT" — NOT on every push. Previews last 7 days.
+#
+# SETUP (one-time per client repo):
+#   1. Run the WIF setup commands for the client's Firebase project (see onboarding guide)
+#   2. In the client GitHub repo → Settings → Variables → Actions, add:
+#        WIF_PROVIDER     = projects/{project-number}/locations/global/workloadIdentityPools/github/providers/github-provider
+#        WIF_SA           = github-deploy@{firebase-project-id}.iam.gserviceaccount.com
+#        FIREBASE_PROJECT = {firebase-project-id}
+#   3. Commit this file to .github/workflows/preview-deploy.yml on the default branch
+#
+# No FIREBASE_TOKEN needed — authentication uses Workload Identity Federation.
+# WIF tokens are short-lived, scoped to this repo only, and never expire.
 
-  name: Deploy Preview Channel (on-demand)
+name: Deploy Preview Channel (on-demand)
 
-  on:
-    workflow_dispatch:
-      inputs:
-        channel_id:
-          description: 'Firebase preview channel ID (max 28 chars, lowercase, hyphens)'
-          required: true
-        ref:
-          description: 'Branch to deploy'
-          required: true
+on:
+  workflow_dispatch:
+    inputs:
+      channel_id:
+        description: 'Firebase preview channel ID (max 28 chars, lowercase, hyphens)'
+        required: true
+      ref:
+        description: 'Branch to deploy'
+        required: true
 
-  jobs:
-    preview:
-      runs-on: ubuntu-latest
-      steps:
-        - uses: actions/checkout@v4
-          with:
-            ref: ${{ github.event.inputs.ref }}
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # Required for Workload Identity Federation
 
-        - name: Deploy to Firebase preview channel
-          run: |
-            npm install -g firebase-tools
-            firebase hosting:channel:deploy "$CHANNEL_ID" \
-              --project "${{ vars.FIREBASE_PROJECT_ID || 'rach-littleestudios' }}" \
-              --expires 7d
-          env:
-            FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
-            CHANNEL_ID: ${{ github.event.inputs.channel_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref }}
 
-        - name: Echo preview URL
-          run: |
-            PROJECT="${{ vars.FIREBASE_PROJECT_ID || 'rach-littleestudios' }}"
-            echo "Preview URL: https://${PROJECT}--${{ github.event.inputs.channel_id }}.web.app"
+      - name: Authenticate to Google Cloud (WIF — no token needed)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_SA }}
+
+      # ── Static HTML sites (no build step) ────────────────────────────────
+      - name: Deploy to Firebase preview channel
+        run: |
+          npm install -g firebase-tools
+          firebase hosting:channel:deploy "$CHANNEL_ID" \
+            --project "$FIREBASE_PROJECT" \
+            --expires 7d
+        env:
+          CHANNEL_ID: ${{ github.event.inputs.channel_id }}
+          FIREBASE_PROJECT: ${{ vars.FIREBASE_PROJECT }}
+
+      # ── Next.js / React sites (uncomment, replace static deploy above) ───
+      # - run: npm ci
+      # - run: npm run build
+      # - name: Deploy to Firebase preview channel
+      #   run: |
+      #     npm install -g firebase-tools
+      #     firebase hosting:channel:deploy "$CHANNEL_ID" \
+      #       --project "$FIREBASE_PROJECT" \
+      #       --expires 7d
+      #   env:
+      #     CHANNEL_ID: ${{ github.event.inputs.channel_id }}
+      #     FIREBASE_PROJECT: ${{ vars.FIREBASE_PROJECT }}
+
+      - name: Echo preview URL
+        run: |
+          echo "Preview URL: https://${{ vars.FIREBASE_PROJECT }}--${{ github.event.inputs.channel_id }}.web.app"
