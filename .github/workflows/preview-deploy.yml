@@ -11,9 +11,13 @@
 #        WIF_SA           = github-deploy@{firebase-project-id}.iam.gserviceaccount.com
 #        FIREBASE_PROJECT = {firebase-project-id}
 #   3. Commit this file to .github/workflows/preview-deploy.yml on the default branch
+#   4. Grant the github-deploy SA cross-project Firestore write access (one-time, see onboarding guide)
 #
 # No FIREBASE_TOKEN needed — authentication uses Workload Identity Federation.
 # WIF tokens are short-lived, scoped to this repo only, and never expire.
+#
+# After deploy, this workflow writes the real preview URL (which Firebase appends
+# a random suffix to) back to Firestore so the console shows the correct link.
 
 name: Deploy Preview Channel (on-demand)
 
@@ -26,6 +30,14 @@ on:
       ref:
         description: 'Branch to deploy'
         required: true
+      approval_id:
+        description: 'SimulateCX approval ID — used to write confirmed URL back to Firestore'
+        required: false
+        default: ''
+      client_id:
+        description: 'SimulateCX client ID — Firestore path segment'
+        required: false
+        default: ''
 
 jobs:
   preview:
@@ -47,29 +59,50 @@ jobs:
 
       # ── Static HTML sites (no build step) ────────────────────────────────
       - name: Deploy to Firebase preview channel
+        id: deploy
         run: |
           npm install -g firebase-tools
-          FIREBASE_TOKEN=$(gcloud auth print-access-token)
-          firebase hosting:channel:deploy "$CHANNEL_ID" \
+          # Capture full output including the real URL Firebase assigns
+          OUTPUT=$(firebase hosting:channel:deploy "$CHANNEL_ID" \
             --project "$FIREBASE_PROJECT" \
-            --expires 7d
+            --expires 7d 2>&1)
+          echo "$OUTPUT"
+          # Firebase appends a random suffix — extract the real URL from output
+          PREVIEW_URL=$(echo "$OUTPUT" | grep -oE 'https://[a-z0-9-]+\.web\.app' | tail -1)
+          echo "preview_url=$PREVIEW_URL" >> "$GITHUB_OUTPUT"
+          echo "Confirmed preview URL: $PREVIEW_URL"
         env:
           CHANNEL_ID: ${{ github.event.inputs.channel_id }}
           FIREBASE_PROJECT: ${{ vars.FIREBASE_PROJECT }}
 
       # ── Next.js / React sites (uncomment, replace static deploy above) ───
-      # - run: npm ci
-      # - run: npm run build
-      # - name: Deploy to Firebase preview channel
+      # - name: Build and deploy
+      #   id: deploy
       #   run: |
+      #     npm ci
+      #     npm run build
       #     npm install -g firebase-tools
-      #     firebase hosting:channel:deploy "$CHANNEL_ID" \
+      #     OUTPUT=$(firebase hosting:channel:deploy "$CHANNEL_ID" \
       #       --project "$FIREBASE_PROJECT" \
-      #       --expires 7d
+      #       --expires 7d 2>&1)
+      #     echo "$OUTPUT"
+      #     PREVIEW_URL=$(echo "$OUTPUT" | grep -oE 'https://[a-z0-9-]+\.web\.app' | tail -1)
+      #     echo "preview_url=$PREVIEW_URL" >> "$GITHUB_OUTPUT"
       #   env:
       #     CHANNEL_ID: ${{ github.event.inputs.channel_id }}
       #     FIREBASE_PROJECT: ${{ vars.FIREBASE_PROJECT }}
 
-      - name: Echo preview URL
+      - name: Write confirmed URL to SimulateCX Firestore
+        if: ${{ github.event.inputs.approval_id != '' && steps.deploy.outputs.preview_url != '' }}
         run: |
-          echo "Preview URL: https://${{ vars.FIREBASE_PROJECT }}--${{ github.event.inputs.channel_id }}.web.app"
+          GCP_TOKEN=$(gcloud auth print-access-token)
+          curl -s -X PATCH \
+            "https://firestore.googleapis.com/v1/projects/simulatecx/databases/(default)/documents/clients/${CLIENT_ID}/approvals/${APPROVAL_ID}?updateMask.fieldPaths=confirmedPreviewUrl" \
+            -H "Authorization: Bearer ${GCP_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"fields\":{\"confirmedPreviewUrl\":{\"stringValue\":\"${PREVIEW_URL}\"}}}"
+          echo "Wrote confirmedPreviewUrl=$PREVIEW_URL to clients/$CLIENT_ID/approvals/$APPROVAL_ID"
+        env:
+          APPROVAL_ID: ${{ github.event.inputs.approval_id }}
+          CLIENT_ID: ${{ github.event.inputs.client_id }}
+          PREVIEW_URL: ${{ steps.deploy.outputs.preview_url }}
