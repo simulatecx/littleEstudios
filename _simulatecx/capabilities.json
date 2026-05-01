@@ -1,0 +1,95 @@
+{
+  "version": "1.0",
+  "scanned_at": "2026-05-01T14:12:49.359Z",
+  "commands": {
+    "blog": {
+      "status": "needs-setup",
+      "missing": "_simulatecx/blog-template.html"
+    },
+    "page": {
+      "status": "active",
+      "reads": [
+        "public/index.html"
+      ],
+      "writes": [
+        "public/index.html",
+        "landing.html"
+      ]
+    },
+    "testimonial": {
+      "status": "active",
+      "reads": [
+        "public/index.html"
+      ],
+      "writes": [
+        "public/index.html"
+      ]
+    },
+    "seo": {
+      "status": "active",
+      "reads": [
+        "public/index.html"
+      ],
+      "writes": [
+        "public/index.html",
+        "landing.html"
+      ]
+    },
+    "nav": {
+      "status": "active",
+      "reads": [
+        "public/index.html"
+      ],
+      "writes": [
+        "public/index.html"
+      ]
+    },
+    "contact": {
+      "status": "active",
+      "reads": [
+        "public/index.html"
+      ],
+      "writes": [
+        "public/index.html"
+      ]
+    },
+    "integration": {
+      "status": "active",
+      "reads": [
+        "public/index.html"
+      ],
+      "writes": [
+        "public/index.html"
+      ]
+    },
+    "duplicate": {
+      "status": "active",
+      "reads": [
+        "public/index.html"
+      ],
+      "writes": [
+        "public/{slug}.html",
+        "public/index.html"
+      ]
+    },
+    "image": {
+      "status": "active",
+      "writes": [
+        "public/uploads/{filename}"
+      ],
+      "uploadPath": "public/uploads"
+    },
+    "rollback": {
+      "status": "active"
+    },
+    "scan": {
+      "status": "active"
+    },
+    "history": {
+      "status": "active"
+    },
+    "help": {
+      "status": "active"
+    }
+  }
+}
