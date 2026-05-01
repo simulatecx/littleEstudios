@@ -1,10 +1,17 @@
 {
   "version": "1.0",
-  "scanned_at": "2026-05-01T14:12:49.359Z",
+  "scanned_at": "2026-05-01T14:13:18.428Z",
   "commands": {
     "blog": {
-      "status": "needs-setup",
-      "missing": "_simulatecx/blog-template.html"
+      "status": "active",
+      "reads": [
+        "_simulatecx/blog-template.html",
+        "public/index.html"
+      ],
+      "writes": [
+        "public/blog/{slug}.html",
+        "public/index.html"
+      ]
     },
     "page": {
       "status": "active",
