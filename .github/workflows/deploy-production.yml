@@ -1,25 +1,27 @@
-# SimulateCX — Firebase Hosting Production Deployer
+# SimulateCX — Firebase Hosting Production Deployer (HTML/static)
 #
-# Triggers automatically when a PR merges to the default branch.
-# Only changed files are uploaded — Firebase CLI diffs against the live channel.
+# Triggers when a PR is merged to the default branch.
+# Using pull_request (closed+merged) instead of push gives us the source branch
+# name, which we use to look up and mark the SimulateCX approval as "live".
 #
-# No setup needed beyond what's already in place for preview-deploy.yml —
-# same WIF_PROVIDER, WIF_SA, and FIREBASE_PROJECT variables are reused.
+# Variables required: WIF_PROVIDER, WIF_SA, FIREBASE_PROJECT, CLIENT_ID
 
 name: Deploy to Production
 
 on:
-  push:
+  pull_request:
+    types: [closed]
     branches:
       - master
       - main
 
 jobs:
   deploy:
+    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write   # Required for Workload Identity Federation
+      id-token: write
 
     steps:
       - uses: actions/checkout@v4
@@ -30,7 +32,6 @@ jobs:
           workload_identity_provider: ${{ vars.WIF_PROVIDER }}
           service_account: ${{ vars.WIF_SA }}
 
-      # ── Static HTML sites (no build step) ────────────────────────────────
       - name: Deploy to Firebase Hosting (live channel)
         run: |
           npm install -g firebase-tools
@@ -38,12 +39,42 @@ jobs:
         env:
           FIREBASE_PROJECT: ${{ vars.FIREBASE_PROJECT }}
 
-      # ── Next.js / React sites (uncomment, replace static deploy above) ───
-      # - run: npm ci
-      # - run: npm run build
-      # - name: Deploy to Firebase Hosting (live channel)
-      #   run: |
-      #     npm install -g firebase-tools
-      #     firebase deploy --only hosting --project "$FIREBASE_PROJECT"
-      #   env:
-      #     FIREBASE_PROJECT: ${{ vars.FIREBASE_PROJECT }}
+      - name: Mark deployment live in SimulateCX
+        if: success()
+        env:
+          CLIENT_ID: ${{ vars.CLIENT_ID }}
+          FIREBASE_PROJECT: ${{ vars.FIREBASE_PROJECT }}
+          BRANCH_NAME: ${{ github.head_ref }}
+        run: |
+          TOKEN=$(gcloud auth print-access-token)
+          SITE_URL="https://${FIREBASE_PROJECT}.web.app"
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Find the approval doc whose branch matches the merged PR branch
+          QUERY=$(printf '{"structuredQuery":{"from":[{"collectionId":"approvals"}],"where":{"fieldFilter":{"field":{"fieldPath":"branch"},"op":"EQUAL","value":{"stringValue":"%s"}}},"limit":1}}' "$BRANCH_NAME")
+          RESULT=$(curl -sf -X POST \
+            "https://firestore.googleapis.com/v1/projects/simulatecx/databases/(default)/documents:runQuery?parent=projects%2Fsimulcx%2Fdatabases%2F(default)%2Fdocuments%2Fclients%2F${CLIENT_ID}" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$QUERY" 2>/dev/null || echo "[]")
+
+          APPROVAL_ID=$(echo "$RESULT" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for item in data:
+    if 'document' in item:
+        print(item['document']['name'].split('/')[-1])
+        break
+" 2>/dev/null || echo "")
+
+          if [ -n "$APPROVAL_ID" ]; then
+            curl -sf -X PATCH \
+              "https://firestore.googleapis.com/v1/projects/simulatecx/databases/(default)/documents/clients/${CLIENT_ID}/approvals/${APPROVAL_ID}?updateMask.fieldPaths=deployedAt&updateMask.fieldPaths=deployStatus&updateMask.fieldPaths=siteUrl" \
+              -H "Authorization: Bearer ${TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "{\"fields\":{\"deployedAt\":{\"timestampValue\":\"${TIMESTAMP}\"},\"deployStatus\":{\"stringValue\":\"live\"},\"siteUrl\":{\"stringValue\":\"${SITE_URL}\"}}}" \
+              && echo "Marked ${APPROVAL_ID} as live at ${SITE_URL}" \
+              || echo "Warning: Firestore write failed — deployment still succeeded"
+          else
+            echo "No matching SimulateCX approval found for branch: ${BRANCH_NAME}"
+          fi
