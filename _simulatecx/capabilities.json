@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "scanned_at": "2026-05-01T14:13:18.428Z",
+  "scanned_at": "2026-05-04T03:11:06.049Z",
   "commands": {
     "blog": {
       "status": "active",
@@ -11,6 +11,20 @@
       "writes": [
         "public/blog/{slug}.html",
         "public/index.html"
+      ],
+      "uploadPath": "public/uploads"
+    },
+    "section": {
+      "status": "active",
+      "reads": [
+        "public/index.html",
+        "_simulatecx/design.md",
+        "_simulatecx/content.md"
+      ],
+      "writes": [
+        "public/{slug}.html",
+        "public/index.html",
+        "_simulatecx/content.md"
       ]
     },
     "page": {
